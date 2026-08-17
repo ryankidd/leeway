@@ -50,6 +50,93 @@ export interface Interaction {
   presentationDelay: number;
 }
 
+/**
+ * The subset of a browser `PerformanceScriptTiming` entry that leeway reads.
+ *
+ * These appear in the `scripts` array of a long animation frame and describe a
+ * single script execution that ran during that frame. As with
+ * {@link EventTimingEntry}, the shape is declared explicitly so the attribution
+ * logic can be exercised with fabricated entries.
+ */
+export interface ScriptTimingEntry {
+  /** Source location of the script, e.g. the URL it was loaded from. */
+  name: string;
+  /** How long this script execution ran (ms). */
+  duration: number;
+  /**
+   * What triggered the script, e.g. `"BUTTON#submit.onclick"` or the URL of a
+   * timer callback. May be empty when the invoker cannot be determined.
+   */
+  invoker: string;
+  /**
+   * The kind of entry point that ran the script, e.g. `"event-listener"`,
+   * `"user-callback"`, or `"classic-script"`.
+   */
+  invokerType: string;
+}
+
+/**
+ * The subset of a browser `PerformanceLongAnimationFrameTiming` entry that
+ * leeway reads. A long animation frame (LoAF) is a frame whose main-thread work
+ * ran long enough to risk delaying user interactions.
+ */
+export interface LongAnimationFrameEntry {
+  /** Start of the frame, relative to the time origin (ms). */
+  startTime: number;
+  /** Total duration of the frame (ms). */
+  duration: number;
+  /** Portion of the frame that blocked the main thread past the busy threshold (ms). */
+  blockingDuration: number;
+  /** The script executions that ran during the frame. */
+  scripts: ScriptTimingEntry[];
+}
+
+/**
+ * A single script execution reduced to what a report needs to name the code
+ * that dominated a frame.
+ */
+export interface ScriptAttribution {
+  /** Source location of the script, e.g. the URL it was loaded from. */
+  source: string;
+  /** What triggered the script, e.g. `"BUTTON#submit.onclick"`. */
+  invoker: string;
+  /** The kind of entry point that ran the script, e.g. `"event-listener"`. */
+  invokerType: string;
+  /** How long this script execution ran (ms). */
+  duration: number;
+}
+
+/**
+ * A long animation frame reduced to the fields leeway attributes an interaction
+ * to, with its scripts ranked so the dominant one is easy to surface.
+ */
+export interface LongAnimationFrame {
+  /** Start of the frame, relative to the time origin (ms). */
+  startTime: number;
+  /** Total duration of the frame (ms). */
+  duration: number;
+  /** Portion of the frame that blocked the main thread past the busy threshold (ms). */
+  blockingDuration: number;
+  /** The frame's scripts as attributions, longest-running first. */
+  scripts: ScriptAttribution[];
+  /** The single longest-running script in the frame, or `null` if it ran none. */
+  dominantScript: ScriptAttribution | null;
+}
+
+/**
+ * An {@link Interaction} paired with the long animation frame it occurred
+ * within, when one could be attributed.
+ *
+ * `longAnimationFrame` is `null` when the environment does not support the Long
+ * Animation Frames API, or when no observed frame overlapped the interaction.
+ */
+export interface InteractionReport {
+  /** The interaction being explained. */
+  interaction: Interaction;
+  /** The frame the interaction ran within, or `null` when none was attributed. */
+  longAnimationFrame: LongAnimationFrame | null;
+}
+
 /** Options for {@link observe}. */
 export interface ObserveOptions {
   /**
