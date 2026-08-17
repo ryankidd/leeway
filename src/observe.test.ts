@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isSupported, observe } from "./observe.js";
-import type { EventTimingEntry } from "./types.js";
+import { isLongAnimationFrameSupported, isSupported, observe } from "./observe.js";
+import type { EventTimingEntry, LongAnimationFrameEntry } from "./types.js";
 
 const RealPerformanceObserver = globalThis.PerformanceObserver;
 
@@ -70,8 +70,10 @@ describe("observe (unsupported environment)", () => {
   it("returns a usable no-op handle instead of throwing", () => {
     const handle = observe();
     expect(handle.supported).toBe(false);
+    expect(handle.longAnimationFramesSupported).toBe(false);
     expect(handle.worst()).toBeNull();
     expect(handle.interactions()).toEqual([]);
+    expect(handle.report()).toBeNull();
     expect(() => handle.disconnect()).not.toThrow();
   });
 });
@@ -111,6 +113,143 @@ describe("observe (supported environment)", () => {
 
   it("disconnects the underlying observer", () => {
     const { disconnect } = installFakeObserver([]);
+    observe().disconnect();
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * A richer fake that supports more than one entry type and routes each
+ * batch to the observer that subscribed to its type, so the interaction and
+ * long-animation-frame observers can be driven independently.
+ */
+function installTypedObserver(config: {
+  supports: string[];
+  event?: EventTimingEntry[][];
+  loaf?: LongAnimationFrameEntry[][];
+}) {
+  const disconnect = vi.fn();
+  const byType: Record<string, unknown[][]> = {
+    event: config.event ?? [],
+    "long-animation-frame": config.loaf ?? [],
+  };
+  class TypedPerformanceObserver {
+    static supportedEntryTypes = config.supports;
+    constructor(private readonly cb: PerformanceObserverCallback) {}
+    observe(init: { type: string }) {
+      for (const batch of byType[init.type] ?? []) {
+        this.cb(
+          { getEntries: () => batch } as unknown as PerformanceObserverEntryList,
+          this as unknown as PerformanceObserver,
+        );
+      }
+    }
+    disconnect = disconnect;
+    takeRecords() {
+      return [];
+    }
+  }
+  globalThis.PerformanceObserver =
+    TypedPerformanceObserver as unknown as typeof PerformanceObserver;
+  return { disconnect };
+}
+
+function loafEntry(
+  overrides: Partial<LongAnimationFrameEntry> = {},
+): LongAnimationFrameEntry {
+  return {
+    startTime: 1000,
+    duration: 200,
+    blockingDuration: 120,
+    scripts: [
+      {
+        name: "https://example.com/app.js",
+        duration: 150,
+        invoker: "BUTTON#submit.onclick",
+        invokerType: "event-listener",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+describe("isLongAnimationFrameSupported", () => {
+  it("is false when the entry type is unavailable", () => {
+    installTypedObserver({ supports: ["event"] });
+    expect(isLongAnimationFrameSupported()).toBe(false);
+  });
+
+  it("is true when the entry type is supported", () => {
+    installTypedObserver({ supports: ["event", "long-animation-frame"] });
+    expect(isLongAnimationFrameSupported()).toBe(true);
+  });
+});
+
+describe("observe (long animation frames)", () => {
+  it("flags long-animation-frame support on the handle", () => {
+    installTypedObserver({ supports: ["event", "long-animation-frame"] });
+    expect(observe().longAnimationFramesSupported).toBe(true);
+  });
+
+  it("attributes the worst interaction to the frame that contained it", () => {
+    installTypedObserver({
+      supports: ["event", "long-animation-frame"],
+      event: [[entry({ interactionId: 1, startTime: 1050, duration: 100 })]],
+      loaf: [[loafEntry({ startTime: 1000, duration: 200 })]],
+    });
+    const report = observe().report();
+    expect(report?.interaction.id).toBe(1);
+    expect(report?.longAnimationFrame?.startTime).toBe(1000);
+    expect(report?.longAnimationFrame?.dominantScript?.source).toBe(
+      "https://example.com/app.js",
+    );
+    expect(report?.longAnimationFrame?.dominantScript?.invokerType).toBe("event-listener");
+  });
+
+  it("reports a null frame when no observed frame overlaps the interaction", () => {
+    installTypedObserver({
+      supports: ["event", "long-animation-frame"],
+      event: [[entry({ interactionId: 1, startTime: 5000, duration: 80 })]],
+      loaf: [[loafEntry({ startTime: 1000, duration: 200 })]],
+    });
+    const report = observe().report();
+    expect(report?.interaction.id).toBe(1);
+    expect(report?.longAnimationFrame).toBeNull();
+  });
+
+  it("returns a null report until an interaction is seen", () => {
+    installTypedObserver({
+      supports: ["event", "long-animation-frame"],
+      loaf: [[loafEntry()]],
+    });
+    expect(observe().report()).toBeNull();
+  });
+
+  it("disconnects both observers", () => {
+    const { disconnect } = installTypedObserver({
+      supports: ["event", "long-animation-frame"],
+    });
+    observe().disconnect();
+    expect(disconnect).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("observe (without long animation frames)", () => {
+  it("still tracks interactions and reports a null frame", () => {
+    installTypedObserver({
+      supports: ["event"],
+      event: [[entry({ interactionId: 1, duration: 90 })]],
+    });
+    const handle = observe();
+    expect(handle.supported).toBe(true);
+    expect(handle.longAnimationFramesSupported).toBe(false);
+    const report = handle.report();
+    expect(report?.interaction.id).toBe(1);
+    expect(report?.longAnimationFrame).toBeNull();
+  });
+
+  it("does not create a second observer to disconnect", () => {
+    const { disconnect } = installTypedObserver({ supports: ["event"] });
     observe().disconnect();
     expect(disconnect).toHaveBeenCalledOnce();
   });

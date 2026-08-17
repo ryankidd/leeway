@@ -154,8 +154,19 @@ export interface ObserveHandle {
   worst(): Interaction | null;
   /** Every distinct interaction seen so far. */
   interactions(): Interaction[];
-  /** Stop observing and release the underlying `PerformanceObserver`. */
+  /**
+   * The worst interaction paired with the long animation frame it ran within,
+   * or `null` if no interaction has been seen yet.
+   *
+   * The report's `longAnimationFrame` is `null` when the environment lacks the
+   * Long Animation Frames API (see {@link longAnimationFramesSupported}) or when
+   * no observed frame overlapped the interaction.
+   */
+  report(): InteractionReport | null;
+  /** Stop observing and release the underlying `PerformanceObserver`(s). */
   disconnect(): void;
   /** Whether the environment supports Event Timing observation. */
   readonly supported: boolean;
+  /** Whether the environment supports Long Animation Frames observation. */
+  readonly longAnimationFramesSupported: boolean;
 }
