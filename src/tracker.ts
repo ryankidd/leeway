@@ -1,4 +1,18 @@
-import type { EventTimingEntry, Interaction } from "./types.js";
+import type { EventTimingEntry, Interaction, InteractionPhase } from "./types.js";
+
+/**
+ * Names the largest of the three phases. Ties fall to the earlier phase, so a
+ * dead heat between input delay and processing reports `"input"`.
+ */
+function dominantPhase(
+  inputDelay: number,
+  processingTime: number,
+  presentationDelay: number,
+): InteractionPhase {
+  if (inputDelay >= processingTime && inputDelay >= presentationDelay) return "input";
+  if (processingTime >= presentationDelay) return "processing";
+  return "presentation";
+}
 
 /**
  * Splits an Event Timing entry into an {@link Interaction} with its three
@@ -7,14 +21,18 @@ import type { EventTimingEntry, Interaction } from "./types.js";
  */
 export function toInteraction(entry: EventTimingEntry): Interaction {
   const { startTime, duration, processingStart, processingEnd } = entry;
+  const inputDelay = Math.max(0, processingStart - startTime);
+  const processingTime = Math.max(0, processingEnd - processingStart);
+  const presentationDelay = Math.max(0, startTime + duration - processingEnd);
   return {
     id: entry.interactionId ?? 0,
     type: entry.name,
     duration,
     startTime,
-    inputDelay: Math.max(0, processingStart - startTime),
-    processingTime: Math.max(0, processingEnd - processingStart),
-    presentationDelay: Math.max(0, startTime + duration - processingEnd),
+    inputDelay,
+    processingTime,
+    presentationDelay,
+    dominantPhase: dominantPhase(inputDelay, processingTime, presentationDelay),
   };
 }
 

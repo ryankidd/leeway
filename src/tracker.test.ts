@@ -47,6 +47,31 @@ describe("toInteraction", () => {
   });
 });
 
+describe("dominantPhase", () => {
+  it("names presentation when the paint is the longest phase", () => {
+    // input 10, processing 40, presentation 50
+    expect(toInteraction(entry()).dominantPhase).toBe("presentation");
+  });
+
+  it("names processing when the handlers are the longest phase", () => {
+    const result = toInteraction(entry({ processingEnd: 1090, duration: 100 }));
+    // input 10, processing 80, presentation 0
+    expect(result.dominantPhase).toBe("processing");
+  });
+
+  it("names input when the delay before the handlers is the longest phase", () => {
+    const result = toInteraction(entry({ processingStart: 1080, processingEnd: 1090, duration: 100 }));
+    // input 80, processing 10, presentation 10
+    expect(result.dominantPhase).toBe("input");
+  });
+
+  it("breaks a tie toward the earlier phase", () => {
+    const result = toInteraction(entry({ processingStart: 1040, processingEnd: 1080, duration: 80 }));
+    // input 40, processing 40, presentation 0
+    expect(result.dominantPhase).toBe("input");
+  });
+});
+
 describe("InteractionTracker", () => {
   it("starts empty", () => {
     const tracker = new InteractionTracker();

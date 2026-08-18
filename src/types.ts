@@ -24,6 +24,15 @@ export interface EventTimingEntry {
 }
 
 /**
+ * Which of an interaction's three latency phases contributed the most time.
+ *
+ * The three phases each have a different fix, so naming the dominant one points
+ * at where to look first: `"input"` at a busy main thread, `"processing"` at the
+ * event handlers, `"presentation"` at rendering or layout work.
+ */
+export type InteractionPhase = "input" | "processing" | "presentation";
+
+/**
  * A single user interaction, reduced to its worst constituent event and the
  * three latency phases that make up its total duration.
  */
@@ -48,6 +57,11 @@ export interface Interaction {
    * A large value points at rendering or layout work, not the handler.
    */
   presentationDelay: number;
+  /**
+   * The phase that contributed the most time, i.e. where to look first.
+   * Ties are broken in phase order, favouring `input`, then `processing`.
+   */
+  dominantPhase: InteractionPhase;
 }
 
 /**
